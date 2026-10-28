@@ -23,13 +23,7 @@ def reg64(v):
 # Exact base/size pairs found in both good-fdt-1.bin and captured live.dtb.
 expected={(0x40000000,0x01000000):'NSS',(0x4a400000,0x00100000):'TZAPP',(0x4a600000,0x00400000):'bootloader',(0x4aa00000,0x00100000):'SBL',(0x4ab00000,0x00100000):'SMEM',(0x4ac00000,0x00400000):'reserved',(0x4b000000,0x03700000):'Wi-Fi/Q6',(0x4e700000,0x00100000):'Q6 ETR',(0x4e800000,0x00100000):'M3 dump'}
 actual={r:node for node,v in nodes.items() if node.startswith('/reserved-memory/') and 'reg' in v for r in reg64(v['reg'])}
-# PPE-NSS 6.18 patch 0930 adds a ramoops@pstore carveout on top of the
-# measured good/live layout; treat it as a known, documented addition.
-allowed_extra={(0x51200000,0x00100000):'ramoops'}
-missing=set(expected)-set(actual)
-unexpected=set(actual)-set(expected)-set(allowed_extra)
-assert not missing,{'missing':sorted(missing)}
-assert not unexpected,{'unexpected':sorted(unexpected)}
+assert set(actual)==set(expected),{'missing':list(set(expected)-set(actual)),'extra':list(set(actual)-set(expected))}
 for r,node in actual.items():
  assert 'no-map' in nodes[node],f'reserved area became mapped: {node}'
  assert 0x40000000<=r[0]<r[0]+r[1]<=0x80000000
@@ -46,6 +40,6 @@ if a.kernel_image:
  raw=a.kernel_image.read_bytes();assert raw[56:60]==b'ARMd','Expected uncompressed ARM64 Image'
  size=struct.unpack_from('<Q',raw,16)[0] or len(raw);assert size>=len(raw)
  start=a.kernel_load;end=start+size;assert 0x40000000<=start<end<=0x80000000
- for base,length in actual:assert end<=base or start>=base+length,f'Kernel overlaps {expected.get((base,length),"reserved")} at {base:#x}'
+ for base,length in actual:assert end<=base or start>=base+length,f'Kernel overlaps {expected[(base,length)]}'
  kernel={'load':hex(start),'reserved_image_size':size,'end':hex(end)}
 print(json.dumps({'reserved_layout':'matches measured good/live DTB','reserved_total_bytes':sum(size for _,size in actual),'ram_capacity':'runtime 1 GiB verified' if a.runtime else ('DTB declares 1 GiB; still need runtime fixup acceptance' if mem else 'not in candidate DTB; must verify runtime bootloader fixup'),'nss_core_loads':[hex(x) for x in loads],'kernel_image':kernel,'runtime_memory_profile':'not inferred from RAM; inspect NSS driver/firmware and real traffic'},indent=2))
