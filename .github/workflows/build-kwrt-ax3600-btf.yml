@@ -91,8 +91,8 @@ jobs:
         if: steps.build.outcome == 'success'
         working-directory: openwrt
         run: |
-          V=$(find build_dir -type f -path '*/linux-*/vmlinux' | head -n 1)
-          [ -n "$V" ] || V=$(find build_dir -type f -name vmlinux | head -n 1)
+          V=$(find build_dir -type f -path '*/linux-[0-9]*/vmlinux' | head -n 1)
+          [ -n "$V" ] || V=$(find build_dir -type f -name 'vmlinux' -size +50M | head -n 1)
           echo "kernel ELF: $V"
           ls -lh "$V"
           readelf -S "$V" | grep -i '\.BTF' || { echo "::error::no .BTF section in $V"; exit 1; }
