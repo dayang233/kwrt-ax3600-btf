@@ -1,4 +1,4 @@
-name: Build Kwrt AX3600 (BTF + honk)
+name: Build OpenWrt 25.12 AX3600 (BTF + honk)
 
 on:
   workflow_dispatch:
@@ -29,14 +29,21 @@ jobs:
             zlib1g-dev file wget libelf-dev ecj fastjar java-propose-classpath \
             python3-setuptools python3-pyelftools swig time dwarves
 
-      - name: Clone Kwrt
-        run: git clone --depth 1 --branch master https://github.com/kiddin9/Kwrt openwrt
+      - name: Clone OpenWrt 25.12
+        run: git clone --depth 1 --branch openwrt-25.12 https://github.com/openwrt/openwrt openwrt
 
       - name: Update and install feeds
         working-directory: openwrt
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+
+      - name: Add honk packages from kiddin9 feed
+        run: |
+          git clone --depth 1 https://github.com/kiddin9/op-packages.git /tmp/op-packages
+          cp -r /tmp/op-packages/honk /tmp/op-packages/luci-app-honk openwrt/package/
+          ls openwrt/package/honk/files/config.d
+          ls openwrt/package/honk/files
 
       - name: Apply config seed
         working-directory: openwrt
@@ -52,7 +59,7 @@ jobs:
             exit 1
           fi
           echo "--- honk ---"
-          grep -E '^CONFIG_PACKAGE_(honk|luci-app-honk)=' .config || true
+          grep -E '^CONFIG_(PACKAGE_(honk|luci-app-honk)|HONK_USE_KERNEL_BTF)=' .config || true
 
       - name: Copy first-boot safety files
         run: |
@@ -86,7 +93,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: kwrt-ax3600-btf-honk
+          name: openwrt-ax3600-btf-honk
           path: out/*
           if-no-files-found: error
           retention-days: 14
