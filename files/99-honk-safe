@@ -1,0 +1,7 @@
+#!/bin/sh
+# 首启保护：honk 默认不启动，避免固件刷完就接管网络导致失联。
+# 需要时在 LuCI（服务 → HONK）里手动启用，或：
+#   uci set honk.config.enabled='1'; uci commit honk; /etc/init.d/honk start
+uci set honk.config.enabled='0' 2>/dev/null || true
+uci commit honk 2>/dev/null || true
+exit 0
