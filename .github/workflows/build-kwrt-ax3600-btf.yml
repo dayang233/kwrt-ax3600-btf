@@ -70,8 +70,8 @@ jobs:
       - name: Copy first-boot safety files
         run: |
           mkdir -p openwrt/files/etc/uci-defaults
-          cp files/99-honk-safe openwrt/files/etc/uci-defaults/99-honk-safe
-          chmod +x openwrt/files/etc/uci-defaults/99-honk-safe
+          cp files/99-honk-safe files/99-lan-ip openwrt/files/etc/uci-defaults/
+          chmod +x openwrt/files/etc/uci-defaults/*
 
       - name: Build firmware
         id: build

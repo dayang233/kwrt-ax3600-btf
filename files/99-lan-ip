@@ -1,0 +1,9 @@
+#!/bin/sh
+# 首启把 LAN 改成 10.0.0.1，避免与上游 WAN 的 192.168.1.0/24 撞网段
+uci set network.lan.ipaddr='10.0.0.1'
+uci set network.lan.netmask='255.255.255.0'
+uci commit network
+uci set system.@system[0].hostname='AX3600'
+uci set system.@system[0].timezone='CST-8'
+uci commit system
+exit 0
