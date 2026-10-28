@@ -32,6 +32,13 @@ jobs:
       - name: Clone OpenWrt 25.12
         run: git clone --depth 1 --branch openwrt-25.12 https://github.com/openwrt/openwrt openwrt
 
+      - name: Cache downloads
+        uses: actions/cache@v4
+        with:
+          path: openwrt/dl
+          key: openwrt-dl-25.12-${{ hashFiles('configs/ax3600-btf.config') }}
+          restore-keys: openwrt-dl-25.12-
+
       - name: Update and install feeds
         working-directory: openwrt
         run: |
@@ -43,7 +50,6 @@ jobs:
           git clone --depth 1 https://github.com/kiddin9/op-packages.git /tmp/op-packages
           cp -r /tmp/op-packages/honk /tmp/op-packages/luci-app-honk openwrt/package/
           ls openwrt/package/honk/files/config.d
-          ls openwrt/package/honk/files
 
       - name: Apply config seed
         working-directory: openwrt
@@ -67,33 +73,58 @@ jobs:
           cp files/99-honk-safe openwrt/files/etc/uci-defaults/99-honk-safe
           chmod +x openwrt/files/etc/uci-defaults/99-honk-safe
 
-      - name: Download sources
-        working-directory: openwrt
-        run: make -j$(nproc) download
-
       - name: Build firmware
+        id: build
         working-directory: openwrt
-        run: make -j$(nproc) 2>&1 | tail -n 300
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          make -j$(nproc) 2>&1 | tee ../build.log | tail -n 300
 
-      - name: Verify vmlinux has BTF
+      - name: Kernel diagnostics
+        if: always()
+        run: |
+          echo "== all vmlinux files =="
+          find openwrt/build_dir -type f -name vmlinux -exec sh -c 'echo "--- $1"; ls -lh "$1"; file "$1"; readelf -h "$1" 2>&1 | head -3' _ {} \;
+
+      - name: Verify BTF in kernel ELF
+        if: steps.build.outcome == 'success'
         working-directory: openwrt
         run: |
-          VMLINUX=$(find build_dir -type f -name vmlinux | head -n 1)
-          echo "vmlinux: $VMLINUX"
-          ls -lh "$VMLINUX"
-          readelf -S "$VMLINUX" | grep -i '\.BTF' || { echo "::error::no .BTF section"; exit 1; }
+          V=$(find build_dir -type f -path '*/linux-*/vmlinux' | head -n 1)
+          [ -n "$V" ] || V=$(find build_dir -type f -name vmlinux | head -n 1)
+          echo "kernel ELF: $V"
+          ls -lh "$V"
+          readelf -S "$V" | grep -i '\.BTF' || { echo "::error::no .BTF section in $V"; exit 1; }
 
       - name: Collect artifacts
+        if: steps.build.outcome == 'success'
         run: |
           mkdir -p out
           find openwrt/bin/targets -name '*sysupgrade.bin' -exec cp -v {} out/ \;
           find openwrt/bin/targets -name '*factory.ubi' -exec cp -v {} out/ \; || true
           cd out && sha256sum * > sha256sums.txt && ls -lh
 
-      - name: Upload artifacts
+      - name: Upload firmware
+        if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: openwrt-ax3600-btf-honk
           path: out/*
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Fail if build failed
+        if: steps.build.outcome != 'success'
+        run: |
+          echo "::error::make failed, see build-log artifact"
+          exit 1
