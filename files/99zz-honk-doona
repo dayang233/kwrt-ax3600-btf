@@ -1,0 +1,35 @@
+#!/bin/sh
+# Configure the pinned, offline Doona bundle. Does not start honk by itself.
+set -eu
+[ -s /etc/honk/doona/index.html ]
+[ -d /etc/honk/doona/assets ]
+umask 077
+mkdir -p /etc/honk/config.d
+lan_ip=$(uci -q get network.lan.ipaddr || true)
+lan_ip=${lan_ip%%/*}
+case "$lan_ip" in
+    ''|*[!0-9.]*) lan_ip=10.0.0.1 ;;
+esac
+api=/etc/honk/config.d/api.dae
+# Preserve an already configured API secret on repeated setup.
+if ! grep -q 'native_api' "$api" 2>/dev/null; then
+    secret=$(dd if=/dev/urandom bs=32 count=1 2>/dev/null | hexdump -v -e '1/1 "%02x"')
+    [ "${#secret}" -eq 64 ]
+    cat > "$api" <<EOT
+experimental {
+    native_api {
+        enabled: true
+        listen: '$lan_ip:9527'
+        secret: '$secret'
+        ui: '/etc/honk/doona'
+        config_write: false
+    }
+}
+EOT
+    chmod 600 "$api"
+fi
+uci set honk.config.dashboard='doona'
+uci commit honk
+# Conservative default: native source edits cannot bypass the hardware gate close hook.
+# Core autostart is owned by the validated profile installer, not this script.
+exit 0

@@ -1,0 +1,22 @@
+{
+  "packages": {
+    "url": "https://git.openwrt.org/feed/packages.git",
+    "commit": "0afe9b1e614f15149565e85b98f91f870ba50c29"
+  },
+  "luci": {
+    "url": "https://git.openwrt.org/project/luci.git",
+    "commit": "4172879f7116ce25b55ee4405847a572dab5af5d"
+  },
+  "routing": {
+    "url": "https://git.openwrt.org/feed/routing.git",
+    "commit": "4b9891b9136259f93294a424507ed24c5e8c1cbd"
+  },
+  "telephony": {
+    "url": "https://git.openwrt.org/feed/telephony.git",
+    "commit": "9bcb6d71db03377ff49ccb099be763add9a5b059"
+  },
+  "video": {
+    "url": "https://github.com/openwrt/video.git",
+    "commit": "e7c09fa7d264039622f8cfab25e6a1eee651c3ea"
+  }
+}

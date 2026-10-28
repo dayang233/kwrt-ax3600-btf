@@ -1,0 +1,17 @@
+#!/bin/sh
+# Only for this AX3600's existing upstream 192.168.1.0/24 network.
+uci set network.lan.ipaddr='10.0.0.1'
+uci set network.lan.netmask='255.255.255.0'
+uci commit network
+uci set system.@system[0].hostname='AX3600'
+uci set system.@system[0].timezone='CST-8'
+uci commit system
+# In this upstream PPE design, fw4's hardware flowtable is the PPE control
+# surface. Selective admission is enforced in the separately patched fw4 template.
+uci set firewall.@defaults[0].flow_offloading='1'
+uci set firewall.@defaults[0].flow_offloading_hw='1'
+uci commit firewall
+uci -q set nss-wifi.general.offload='1'
+uci -q set nss-wifi.general.firmware='12.5'
+uci commit nss-wifi
+exit 0

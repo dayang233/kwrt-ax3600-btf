@@ -1,0 +1,10 @@
+# Syntax-check only, e.g. nft -c -f FILE on a Linux host. Does not configure fw4.
+table inet honk_flowtable_syntax_check {
+ set honk_hw_gate { type mark; }
+ flowtable ft { hook ingress priority filter; devices = { "wan" }; flags offload; counter; }
+ chain forward {
+  type filter hook forward priority filter; policy accept;
+  iifname "br-lan" oifname "wan" meta l4proto { tcp, udp } th sport != 53 th dport != 53 meta mark & 0x3fffffff == 0x200 meta mark & 0xc0000000 == 0x40000000 meta mark & 0x3fffffff @honk_hw_gate counter ct mark set ct mark | 0x200 comment "honk native direct admission"
+  ct state established ct mark & 0x200 @honk_hw_gate iifname . oifname { "br-lan" . "wan", "wan" . "br-lan" } meta l4proto { tcp, udp } th sport != 53 th dport != 53 counter flow offload @ft comment "honk direct only hardware admission"
+ }
+}

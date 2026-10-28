@@ -1,0 +1,195 @@
+name: Build AX3600 PPE NSS single-UBI Linux 6.18 (BTF + honk)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, honk-ppe-singleubi ]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [stable, accelerated]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 350
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo apt-get clean
+          df -h /
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
+            gettext git libncurses-dev libssl-dev python3-distutils rsync unzip \
+            zlib1g-dev file wget libelf-dev ecj fastjar java-propose-classpath \
+            python3-setuptools python3-pyelftools swig time dwarves
+
+      - name: Clone pinned PPE-NSS Linux 6.18 source
+        run: |
+          git init openwrt
+          git -C openwrt remote add origin https://github.com/JuliusBairaktaris/openwrt-ppe-nss
+          git -C openwrt fetch --depth 1 origin 74c3517f72f8a2c8bdb97a1115fe1426ae607267
+          git -C openwrt checkout --detach FETCH_HEAD
+
+      - name: Apply this AX3600 layout and honk-only offload admission
+        run: |
+          python3 scripts/apply-ax3600-layout.py openwrt
+          python3 scripts/apply-honk-flowtable.py openwrt
+
+      - name: Cache downloads
+        uses: actions/cache@v4
+        with:
+          path: openwrt/dl
+          key: ax3600-ppe-nss-dl-6.18-${{ hashFiles('configs/ax3600-btf.config') }}
+          restore-keys: ax3600-ppe-nss-dl-6.18-
+
+      - name: Cache compiler outputs
+        uses: actions/cache@v4
+        with:
+          path: openwrt/.ccache
+          key: ax3600-ppe-nss-ccache-6.18-${{ hashFiles('configs/ax3600-btf.config') }}
+          restore-keys: ax3600-ppe-nss-ccache-6.18-
+
+      - name: Update and install feeds
+        working-directory: openwrt
+        run: |
+          python3 - <<'PYFEEDS'
+          import json
+          from pathlib import Path
+          feeds=json.loads(Path('../configs/feed-lock.json').read_text())
+          lines=[f"src-git {n} {s['url']}^{s['commit']}" for n,s in feeds.items()]
+          lines.append('src-git nss https://github.com/JuliusBairaktaris/nss-packages.git^1f60d7e9409930bbd298eae1831c5b76d21eb1d2')
+          Path('feeds.conf').write_text('\n'.join(lines)+'\n')
+          PYFEEDS
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Add honk packages from kiddin9 feed
+        run: |
+          git init /tmp/op-packages
+          git -C /tmp/op-packages remote add origin https://github.com/kiddin9/op-packages.git
+          git -C /tmp/op-packages fetch --depth 1 origin b21929fceb463c06b4cf703406c971be10bcbd45
+          git -C /tmp/op-packages checkout --detach FETCH_HEAD
+          cp -r /tmp/op-packages/honk /tmp/op-packages/luci-app-honk openwrt/package/
+          ls openwrt/package/honk/files/config.d
+
+      - name: Apply config seed
+        working-directory: openwrt
+        run: |
+          cp ../configs/ax3600-btf.config .config
+          make defconfig
+          echo "--- target/device ---"
+          grep -E '^CONFIG_TARGET_(qualcommax|qualcommax_ipq807x(_DEVICE_xiaomi_ax3600)?)=' .config
+          echo "--- BTF ---"
+          grep -E '^CONFIG_KERNEL_DEBUG_INFO(_BTF|_REDUCED)?=' .config || true
+          if ! grep -q '^CONFIG_KERNEL_DEBUG_INFO_BTF=y' .config; then
+            echo "::error::CONFIG_KERNEL_DEBUG_INFO_BTF not enabled, aborting"
+            exit 1
+          fi
+          echo "--- NSS hardware stack ---"
+          for pkg in kmod-nss-wifi-drv nss-firmware-ipq807x honk luci-app-honk; do
+            grep -q "^CONFIG_PACKAGE_$pkg=y" .config || { echo "missing NSS package: $pkg"; exit 1; }
+          done
+          grep -q '^CONFIG_ATH11K_NSS_WIFI=y' .config
+          test "$(grep -c '^CONFIG_TARGET_.*_DEVICE_.*=y$' .config)" -eq 1
+          if grep -Eq '^CONFIG_PACKAGE_(sing-box|dae|daed|xray-core|luci-app-openclash|luci-app-passwall|luci-app-passwall2)=y$' .config; then
+            echo "Unrequested transparent proxy selected"; exit 1
+          fi
+          echo "--- honk ---"
+          grep -E '^CONFIG_(PACKAGE_(honk|luci-app-honk)|HONK_USE_KERNEL_BTF)=' .config || true
+
+      - name: Install profile, offline Doona and hardware admission guards
+        run: |
+          python3 scripts/verify-doona.py openwrt/package/luci-app-honk/root/etc/honk/doona
+          python3 scripts/prepare-profile.py openwrt ${{ matrix.profile }}
+          python3 scripts/apply-honk-init-gate.py openwrt
+          sh -n openwrt/package/honk/files/honk.init
+          sh -n openwrt/files/usr/bin/honk-hw-close
+
+      - name: Build firmware
+        id: build
+        working-directory: openwrt
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          make -j$(nproc) 2>&1 | tee ../build.log | tail -n 300
+
+      - name: Kernel diagnostics
+        if: always()
+        run: |
+          echo "== all vmlinux files =="
+          find openwrt/build_dir -type f -name vmlinux -exec sh -c 'echo "--- $1"; ls -lh "$1"; file "$1"; readelf -h "$1" 2>&1 | head -3' _ {} \;
+
+      - name: Verify BTF in kernel ELF
+        if: steps.build.outcome == 'success'
+        working-directory: openwrt
+        run: |
+          V=$(find build_dir -type f -path '*/linux-[0-9]*/vmlinux' | head -n 1)
+          [ -n "$V" ] || V=$(find build_dir -type f -name 'vmlinux' -size +50M | head -n 1)
+          echo "kernel ELF: $V"
+          python3 ../scripts/verify-kernel.py "$(dirname "$V")/.config"
+          cp "$(dirname "$V")/.config" ../kernel.config
+          sh -n target/linux/qualcommax/ipq807x/base-files/lib/upgrade/platform.sh
+          DTB=$(find build_dir -type f -name '*ax3600*.dtb' | head -n 1)
+          test -n "$DTB"
+          python3 ../scripts/verify-ax3600-dtb.py "$DTB"
+          python3 ../scripts/verify-ax3600-memory.py "$DTB" --kernel-image "$(dirname "$V")/arch/arm64/boot/Image"
+          ROOT=$(find build_dir -type d -name root-qualcommax | head -n 1)
+          test -n "$ROOT"
+          python3 ../scripts/verify-doona.py "$ROOT/etc/honk/doona"
+          readelf -h "$ROOT/usr/bin/honk-core" | grep AArch64
+          if readelf -l "$ROOT/usr/bin/honk-core" | grep -q INTERP; then
+            echo "Unexpected dynamically linked honk; review ABI"; exit 1
+          fi
+          ls -lh "$V"
+          grep -q "^CONFIG_QCOM_80211AX_PPE=y" "$(dirname "$V")/.config"
+          grep -q "^CONFIG_QCOM_EDMA=y" "$(dirname "$V")/.config"
+          readelf -S "$V" | grep -i '\.BTF' || { echo "::error::no .BTF section in $V"; exit 1; }
+
+      - name: Collect artifacts
+        if: steps.build.outcome == 'success'
+        run: |
+          mkdir -p out
+          find openwrt/bin/targets -name '*sysupgrade.bin' -exec cp -v {} out/ \;
+          find openwrt/bin/targets -name '*factory.ubi' -exec cp -v {} out/ \; || true
+          cd out && sha256sum * > sha256sums.txt && ls -lh
+
+      - name: Upload firmware
+        if: steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ax3600-ppe-nss-single-ubi-btf-honk-${{ matrix.profile }}
+          path: out/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ matrix.profile }}
+          path: |
+            build.log
+            kernel.config
+            openwrt/.config
+            openwrt/feeds.buildinfo
+            openwrt/feeds.conf
+            configs/feed-lock.json
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+
+      - name: Fail if build failed
+        if: steps.build.outcome != 'success'
+        run: |
+          echo "::error::make failed, see build-log artifact"
+          exit 1

@@ -1,0 +1,22 @@
+#!/bin/sh
+# Called BEFORE honk stop/restart/reload. Never automatically reopen admission.
+set -eu
+if nft list flowtable inet fw4 ft >/dev/null 2>&1; then
+    # Refuse to proceed with an unknown/unrestricted firewall template.
+    nft list set inet fw4 honk_hw_gate >/dev/null
+    nft flush set inet fw4 honk_hw_gate
+    # No new entries can be tagged or admitted after the gate is closed.
+    nft flush flowtable inet fw4 ft
+fi
+# conntrack-tools copy_mark uses (old & ~mask) ^ value; these clear only bit 0x200.
+# Exit code 1 is ambiguous (no changes or an error); verify the postcondition.
+for family in ipv4 ipv6; do
+    rc=0
+    conntrack -U -f "$family" --mark 0/0x200 >/dev/null 2>&1 || rc=$?
+    [ "$rc" -le 1 ] || exit "$rc"
+    remaining=$(conntrack -L -f "$family" --mark 0x200/0x200 2>/dev/null)
+    [ -z "$remaining" ] || {
+        echo "honk-hw-close: stale $family whitelist marks remain; gate stays closed" >&2
+        exit 1
+    }
+done
