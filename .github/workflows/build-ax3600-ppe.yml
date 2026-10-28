@@ -40,6 +40,16 @@ jobs:
           git -C openwrt fetch --depth 1 origin 74c3517f72f8a2c8bdb97a1115fe1426ae607267
           git -C openwrt checkout --detach FETCH_HEAD
 
+      - name: Drop ramoops carveout so DTB matches measured 9-region layout
+        run: |
+          P=openwrt/target/linux/qualcommax/patches-6.18/0930-arm64-dts-qcom-ipq8074-add-ramoops.patch
+          rm -f "$P"
+          test ! -e "$P"
+          if grep -R "ramoops@" openwrt/target/linux/qualcommax/dts openwrt/target/linux/qualcommax/files 2>/dev/null; then
+            echo "::error::ramoops node still present in target dts/files"; exit 1
+          fi
+          echo "ramoops patch removed; DTB reserved-memory must stay at the measured 9 regions"
+
       - name: Apply this AX3600 layout and honk-only offload admission
         run: |
           python3 scripts/apply-ax3600-layout.py openwrt
