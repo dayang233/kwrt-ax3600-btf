@@ -113,6 +113,8 @@ jobs:
           for pkg in kmod-nss-wifi-drv nss-firmware-ipq807x honk luci-app-honk; do
             grep -q "^CONFIG_PACKAGE_$pkg=y" .config || { echo "missing NSS package: $pkg"; exit 1; }
           done
+          grep -q '^CONFIG_LUCI_LANG_zh_Hans=y' .config || { echo "Simplified Chinese LuCI language is disabled"; exit 1; }
+          grep -q '^CONFIG_PACKAGE_luci-i18n-base-zh-cn=y' .config || { echo "Simplified Chinese LuCI base translation is missing"; exit 1; }
           grep -q '^CONFIG_ATH11K_NSS_WIFI=y' .config
           test "$(grep -c '^CONFIG_TARGET_.*_DEVICE_.*=y$' .config)" -eq 1
           if grep -Eq '^CONFIG_PACKAGE_(sing-box|dae|daed|xray-core|luci-app-openclash|luci-app-passwall|luci-app-passwall2)=y$' .config; then
@@ -160,6 +162,7 @@ jobs:
           ROOT=$(find build_dir -type d -name root-qualcommax | head -n 1)
           test -n "$ROOT"
           python3 ../scripts/verify-doona.py "$ROOT/etc/honk/doona"
+          test -f "$ROOT/usr/lib/lua/luci/i18n/base.zh-cn.lmo"
           PROFILE="${{ matrix.profile }}"
           test "$(cat "$ROOT/etc/ax3600-build-profile")" = "$PROFILE"
           DEFAULTS="$ROOT/etc/uci-defaults/99-ppe-lan"
