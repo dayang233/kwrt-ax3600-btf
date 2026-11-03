@@ -82,8 +82,8 @@ python3 scripts/verify-ax3600-memory.py captured-runtime.dtb --runtime --kernel-
 
 刷前必须对**实际编译的**DTB和Image运行脚本；若新增其他合法保留区，应先审查并更新基线，不能直接绕过断言。刷后仍需确认：U-Boot传入1GiB范围、MemTotal符合新内核预算、内核无reserved-memory/DMA分配错误、NSS meminfo全部满足、实际mem_profile/pbuf/payload/radio参数、无线收发rings和NSS启动持续稳定、压力下无OOM/分配失败/重启。300Mbps稳定性优先时先保留保守参数和300M实际负载，不应为了“用满1GiB”扩大pool或套用其他设备profile。
 
-## 当前双配置构建
+## 当前三种构建配置
 
-GitHub Actions 对同一套锁定源码构建 stable 与 accelerated 两个配置，产物和日志分别保存。stable 是关闭 Flowtable/PPE 路由卸载与 NSS Wi-Fi 数据路径的 CPU/eBPF 基线，仍编译并保留 NSS/固件支持；accelerated 打开这些硬件功能，但硬件流量准入 gate 默认关闭，必须通过实机分流验收后显式开启。stable 是配置名称，不代表已经完成稳定性验收。两者初次启动 Honk 关闭，避免未迁移订阅/DNS时接管网络；Doona 离线资产及LAN管理配置已预置，服务自启动在实机配置验证后启用。
+GitHub Actions 对同一套锁定源码构建 stable、accelerated 和 ppe-nsswifi-off 三种配置，产物和日志分别保存。stable 关闭 Flowtable/PPE 路由卸载与 NSS Wi-Fi 数据路径，作为 CPU/eBPF 基线，同时编译并保留 NSS/固件支持；accelerated 打开 PPE 与 NSS Wi-Fi，但硬件流量准入 gate 默认关闭，必须通过实机分流验收后显式开启。ppe-nsswifi-off 保持 PPE flowtable 开启、将 SoC Wi-Fi 留在 ath11k 主机数据路径，作为 Wi-Fi 稳定性候选，同时保留 NSS/eBPF 编译支持；是否采用该配置仍须以 AX3600 两天观察日志和后续实机验收为准。三者均为配置名称，不代表已经完成稳定性验收。初次启动 Honk 关闭，避免未迁移订阅/DNS时接管网络；Doona 离线资产及LAN管理配置已预置，服务自启动在实机配置验证后启用。
 
 Doona 默认 config_write=false，代理组选节点仍可使用。此 Honk 版本的 Native API reload 并不受 config_write 限制；因此不能宣称 Doona 所有写操作都已原子接入硬件 gate。修改磁盘分流配置前必须先关闭 gate，完成热更新与模式切换验收前不自动重新开启。此限制不影响先构建安全基线，阻止把未验证的实验配置当成生产共存结果。

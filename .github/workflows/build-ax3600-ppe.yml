@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: [stable, accelerated]
+        profile: [stable, accelerated, ppe-nsswifi-off]
     runs-on: ubuntu-22.04
     timeout-minutes: 350
 
@@ -156,6 +156,34 @@ jobs:
           ROOT=$(find build_dir -type d -name root-qualcommax | head -n 1)
           test -n "$ROOT"
           python3 ../scripts/verify-doona.py "$ROOT/etc/honk/doona"
+          PROFILE="${{ matrix.profile }}"
+          test "$(cat "$ROOT/etc/ax3600-build-profile")" = "$PROFILE"
+          DEFAULTS="$ROOT/etc/uci-defaults/99-ppe-lan"
+          case "$PROFILE" in
+            stable) expected_flow=0; expected_hw=0; expected_nss=0 ;;
+            accelerated) expected_flow=1; expected_hw=1; expected_nss=1 ;;
+            ppe-nsswifi-off) expected_flow=1; expected_hw=1; expected_nss=0 ;;
+            *) echo "Unknown AX3600 profile: $PROFILE"; exit 1 ;;
+          esac
+          grep -Fqx "uci set firewall.@defaults[0].flow_offloading='$expected_flow'" "$DEFAULTS"
+          grep -Fqx "uci set firewall.@defaults[0].flow_offloading_hw='$expected_hw'" "$DEFAULTS"
+          grep -Fqx "uci -q set nss-wifi.general.offload='$expected_nss'" "$DEFAULTS"
+          echo "Embedded profile and first-boot offload defaults verified: $PROFILE"
+          python3 - "$ROOT" <<'PYBOOT'
+          import re
+          import sys
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+          boot = (root / "etc/init.d/boot").read_text()
+          nss = (root / "etc/init.d/nss-wifi").read_text()
+          link = root / "etc/rc.d/S19nss-wifi"
+          assert re.search(r"^START=10$", boot, re.M), "boot must start at priority 10"
+          assert re.search(r"^START=19$", nss, re.M), "nss-wifi must start at priority 19"
+          assert link.is_symlink() and link.resolve() == (root / "etc/init.d/nss-wifi").resolve(), "nss-wifi service must be enabled"
+          assert boot.rindex("/sbin/kmodloader") < boot.rindex("uci_apply_defaults"), "UCI defaults must apply after kmodloader"
+          print("Boot ordering verified: UCI defaults apply before enabled S19nss-wifi")
+          PYBOOT
           readelf -h "$ROOT/usr/bin/honk-core" | grep AArch64
           if readelf -l "$ROOT/usr/bin/honk-core" | grep -q INTERP; then
             echo "Unexpected dynamically linked honk; review ABI"; exit 1
