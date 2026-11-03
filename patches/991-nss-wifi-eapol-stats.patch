@@ -1,0 +1,37 @@
+diff --git a/package/kernel/nss-wifi-drv/src/nss_wifili.c b/package/kernel/nss-wifi-drv/src/nss_wifili.c
+--- a/package/kernel/nss-wifi-drv/src/nss_wifili.c
++++ b/package/kernel/nss-wifi-drv/src/nss_wifili.c
+@@ -810,6 +810,7 @@
+ static struct {
+ 	int if_num;
+ 	u32 seen;
++	u32 stats_len;
+ 	struct nss_wifi_vdev_stats_sync_msg st;
+ } nss_wifili_vdev_stats[NSS_WIFILI_VDEV_MAX];
+ 
+@@ -851,6 +852,7 @@
+ 		int w;
+ 
+ 		nss_wifili_vdev_stats[i].if_num = if_num;
++		nss_wifili_vdev_stats[i].stats_len = fw->vdev_stats_len;
+ 		for (w = 0; w < fw->vdev_stats_len / sizeof(u32); w++)
+ 			acc[w + (w >= fw->vdev_stats_hole)] += in[w];
+ 		nss_wifili_vdev_stats[i].seen++;
+@@ -897,6 +899,17 @@
+ 			   v->tx_rcvd, v->tx_enqueue_cnt,
+ 			   v->tx_enqueue_fail_cnt, v->tx_hw_ring_full,
+ 			   v->tx_desc_alloc_fail, v->dropped);
++		if (nss_wifili_vdev_stats[i].stats_len >=
++		    offsetof(struct nss_wifi_vdev_stats_sync_msg, tx_eapol_cnt) +
++		    sizeof(v->tx_eapol_cnt))
++			seq_printf(s, "  eapol tx %u\n", v->tx_eapol_cnt);
++		if (nss_wifili_vdev_stats[i].stats_len >=
++		    offsetof(struct nss_wifi_vdev_stats_sync_msg,
++			     eapol_over_nl_exc_pass_cnt) +
++		    sizeof(v->eapol_over_nl_exc_pass_cnt))
++			seq_printf(s, "  eapol rx_exception_pass %u fail %u\n",
++				   v->eapol_over_nl_exc_pass_cnt,
++				   v->eapol_over_nl_exc_fail_cnt);
+ 		seq_printf(s, "  me rcvd %u converted %u no_member_drop %u alloc_fail %u enq_fail %u\n",
+ 			   v->wvmes.mcast_rcvd, v->wvmes.mcast_ucast_converted,
+ 			   v->wvmes.mcast_no_enhance_drop_cnt,

@@ -2,7 +2,7 @@
 """Install non-secret, per-image first-boot defaults and lifecycle guards."""
 from pathlib import Path
 import argparse, shutil, json
-p=argparse.ArgumentParser();p.add_argument('openwrt',type=Path);p.add_argument('profile',choices=['stable','accelerated','ppe-nsswifi-off']);a=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('openwrt',type=Path);p.add_argument('profile',choices=['stable','accelerated','ppe-nsswifi-off','accelerated-eapol-diag']);a=p.parse_args()
 project=Path(__file__).resolve().parent.parent
 root=a.openwrt/'files';defaults=root/'etc/uci-defaults';defaults.mkdir(parents=True,exist_ok=True)
 for name in ['99-honk-safe','99zz-honk-doona']:
@@ -25,5 +25,6 @@ description={
     'stable':'PPE hardware flow and NSS Wi-Fi data paths disabled',
     'accelerated':'PPE and NSS Wi-Fi enabled with hardware admission gated',
     'ppe-nsswifi-off':'PPE flow enabled; NSS Wi-Fi stays on the ath11k host path',
+    'accelerated-eapol-diag':'PPE and NSS Wi-Fi enabled; adds EAPOL diagnostics without changing packet handling',
 }[a.profile]
 print(f'Prepared {a.profile}: {description}; NSS packages remain compiled in all profiles')

@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: [stable, accelerated, ppe-nsswifi-off]
+        profile: [stable, accelerated, ppe-nsswifi-off, accelerated-eapol-diag]
     runs-on: ubuntu-22.04
     timeout-minutes: 350
 
@@ -54,6 +54,10 @@ jobs:
         run: |
           python3 scripts/apply-ax3600-layout.py openwrt
           python3 scripts/apply-honk-flowtable.py openwrt
+
+      - name: Add NSS EAPOL diagnostics
+        if: matrix.profile == 'accelerated-eapol-diag'
+        run: python3 scripts/apply-nss-wifi-diagnostics.py openwrt
 
       - name: Cache downloads
         uses: actions/cache@v4
@@ -161,7 +165,7 @@ jobs:
           DEFAULTS="$ROOT/etc/uci-defaults/99-ppe-lan"
           case "$PROFILE" in
             stable) expected_flow=0; expected_hw=0; expected_nss=0 ;;
-            accelerated) expected_flow=1; expected_hw=1; expected_nss=1 ;;
+            accelerated|accelerated-eapol-diag) expected_flow=1; expected_hw=1; expected_nss=1 ;;
             ppe-nsswifi-off) expected_flow=1; expected_hw=1; expected_nss=0 ;;
             *) echo "Unknown AX3600 profile: $PROFILE"; exit 1 ;;
           esac

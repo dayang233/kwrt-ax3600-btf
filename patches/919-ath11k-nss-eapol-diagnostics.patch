@@ -1,0 +1,58 @@
+From: OpenAI Codex <codex@openai.com>
+Subject: [PATCH] ath11k: log NSS EAPOL handoff failures and receives
+
+Diagnostic-only logging; packet handling is unchanged.
+---
+diff --git a/drivers/net/wireless/ath/ath11k/mac.c b/drivers/net/wireless/ath/ath11k/mac.c
+--- a/drivers/net/wireless/ath/ath11k/mac.c
++++ b/drivers/net/wireless/ath/ath11k/mac.c
+@@ -6682,10 +6682,12 @@
+ 		return;
+ 	}
+ 
+ 	if (ar->ab->nss_offload && !ath11k_nss_host_tx) {
+ 		struct sk_buff *orig = skb;
++		int nss_ret;
++		bool nss_eapol;
+ 
+ 		if (!(info_flags & IEEE80211_TX_CTL_HW_80211_ENCAP) &&
+ 		    ieee80211_data_to_8023(skb, hdr->addr1,
+ 					   vif->type == NL80211_IFTYPE_STATION ?
+ 					   NL80211_IFTYPE_AP :
+@@ -6705,11 +6707,19 @@
+ 			ieee80211_free_txskb(ar->hw, orig);
+ 			if (!skb)
+ 				return;
+ 		}
+ 
+-		if (nss_wifi_vdev_tx(arvif->nss_ifnum, skb)) {
++		nss_eapol = skb->len >= ETH_HLEN &&
++			((struct ethhdr *)skb->data)->h_proto ==
++			cpu_to_be16(ETH_P_PAE);
++		nss_ret = nss_wifi_vdev_tx(arvif->nss_ifnum, skb);
++		if (nss_ret) {
++			if (nss_eapol)
++				ath11k_warn(ar->ab,
++					    "NSS EAPOL TX submission failed for vdev %d: %d\n",
++					    arvif->vdev_id, nss_ret);
+ 			if (skb == orig)
+ 				ieee80211_free_txskb(ar->hw, skb);
+ 			else
+ 				dev_kfree_skb_any(skb);
+ 		}
+diff --git a/drivers/net/wireless/ath/ath11k/dp_rx.c b/drivers/net/wireless/ath/ath11k/dp_rx.c
+--- a/drivers/net/wireless/ath/ath11k/dp_rx.c
++++ b/drivers/net/wireless/ath/ath11k/dp_rx.c
+@@ -2541,10 +2541,12 @@
+ 	rxcb->is_first_msdu = true;
+ 	rxcb->is_last_msdu = true;
+ 
+ 	ath11k_dp_rx_h_ppdu(ar, rxcb->rx_desc, &rx_status);
+ 	ath11k_dp_rx_h_mpdu(ar, msdu, rxcb->rx_desc, &rx_status);
++	if (rxcb->is_eapol)
++		ath11k_info(ar->ab, "NSS EAPOL RX handed to mac80211\n");
+ 
+ 	rx_status.flag |= RX_FLAG_SKIP_MONITOR | RX_FLAG_DUP_VALIDATED;
+ 
+ 	ath11k_dp_rx_deliver_msdu(ar, napi, msdu, &rx_status);
+ }
